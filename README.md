@@ -83,6 +83,23 @@ Check out a few resources that may come in handy when working with NestJS:
 - To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
 - Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
 
+## Auth API (Supabase)
+
+Set these env vars before running app:
+
+- `SUPABASE_URL`
+- `SUPABASE_PUBLISHABLE_KEY` (preferred)
+- `SUPABASE_ANON_KEY` (legacy fallback)
+
+Endpoints:
+
+- `POST /auth/register`
+  - body: `{ "email": "user@example.com", "password": "min8chars" }`
+- `POST /auth/login`
+  - body: `{ "email": "user@example.com", "password": "min8chars" }`
+
+Both endpoints return `user` and `tokens` object. Register response may return empty tokens when email confirmation is required in Supabase project settings.
+
 ## Support
 
 Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
