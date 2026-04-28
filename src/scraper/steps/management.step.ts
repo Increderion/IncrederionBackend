@@ -6,8 +6,7 @@ import { FindingInsert } from './registry.step';
 
 /**
  * Extracts management/board members from registry markdown (simple heuristics),
- * searches for them in rejestr.io to find other companies they appear in,
- * and persists results in company_persons + report_findings.
+ * searches for them on rejestr.io via Google to find other companies they appear in.
  */
 @Injectable()
 export class ManagementStep {
@@ -21,7 +20,6 @@ export class ManagementStep {
   async run(reportId: string, company: CompanyRow): Promise<FindingInsert[]> {
     const findings: FindingInsert[] = [];
 
-    // Extract names from registry markdown (stored from registry step)
     const names = this.extractNames(company.registry_raw_markdown ?? '');
     if (!names.length) {
       this.logger.debug(`[management] no names found for ${company.name}`);
@@ -29,16 +27,22 @@ export class ManagementStep {
     }
 
     for (const name of names.slice(0, 5)) {
-      // cap at 5 persons per report
-      const q = encodeURIComponent(name.trim());
-      const url = `https://rejestr.io/szukaj-osoby?phrase=${q}`;
       this.logger.debug(`[management] cross-ref: ${name}`);
 
       try {
+        // Google search to find the person's rejestr.io /osoby/ page
+        const googleUrl = `https://www.google.com/search?q=site:rejestr.io+osoba+${encodeURIComponent(name)}`;
+        const googleResult = await this.firecrawl.scrapeUrl(googleUrl);
+        const match = googleResult.markdown.match(/https:\/\/rejestr\.io\/osoby\/[\w/%-]+/);
+        if (!match) {
+          this.logger.debug(`[management] no osoby URL for ${name}`);
+          continue;
+        }
+        const url = match[0].split('#')[0];
+
         const result = await this.firecrawl.scrapeUrl(url);
         if (!result.markdown.trim()) continue;
 
-        // Persist to company_persons
         await this.upsertPerson(company.id, name, result.markdown);
 
         findings.push({
@@ -61,10 +65,6 @@ export class ManagementStep {
     return findings;
   }
 
-  /**
-   * Very simple heuristic: look for lines that look like person names
-   * next to known Polish role keywords.
-   */
   private extractNames(markdown: string): string[] {
     const ROLE_PATTERN =
       /(?:prezes|wiceprezes|prokurent|wspólnik|członek zarządu|dyrektor)[:\s]+([A-ZŁÓŚĄĘŹŻŃ][a-złóśąęźżń]+ [A-ZŁÓŚĄĘŹŻŃ][a-złóśąęźżń]+(?:\s[A-ZŁÓŚĄĘŹŻŃ][a-złóśąęźżń]+)?)/gi;
@@ -85,7 +85,6 @@ export class ManagementStep {
     fullName: string,
     markdown: string,
   ) {
-    // Extract other companies from markdown (placeholder – AI will improve this)
     const otherCompanies: unknown[] = [];
 
     const { error } = await this.supabase

@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../database/supabase.service';
 import { CompanyRow } from '../companies/company-row.type';
-import { RegistryStep } from './steps/registry.step';
 import { OpinionsStep } from './steps/opinions.step';
 import { NewsStep } from './steps/news.step';
 import { ManagementStep } from './steps/management.step';
@@ -14,7 +13,6 @@ export class ScraperPipelineService {
 
   constructor(
     private readonly supabase: SupabaseService,
-    private readonly registryStep: RegistryStep,
     private readonly opinionsStep: OpinionsStep,
     private readonly newsStep: NewsStep,
     private readonly managementStep: ManagementStep,
@@ -23,7 +21,8 @@ export class ScraperPipelineService {
 
   /**
    * Fire-and-forget: caller does NOT await this method.
-   * Updates report status to running → runs all steps → completed / failed.
+   * Company data is already scraped at search time — pipeline only runs
+   * opinions, news, management cross-ref and AI summary.
    */
   async run(reportId: string, company: CompanyRow): Promise<void> {
     this.logger.log(`Pipeline start: report=${reportId} company=${company.id}`);
@@ -31,36 +30,17 @@ export class ScraperPipelineService {
     await this.setStatus(reportId, 'running');
 
     try {
-      // ── Step A: Registry ────────────────────────────────────────────────
-      const registryFindings = await this.registryStep.run(reportId, company);
+      // ── Step A: Opinions ────────────────────────────────────────────────
+      const opinionFindings = await this.opinionsStep.run(reportId, company);
 
-      // Reload company after registry step (markdown now populated)
-      const { data: refreshedCompany } = await this.supabase
-        .getServiceRoleClient()
-        .from('companies')
-        .select('*')
-        .eq('id', company.id)
-        .single();
-      const enrichedCompany = (refreshedCompany as CompanyRow) ?? company;
+      // ── Step B: News ─────────────────────────────────────────────────────
+      const newsFindings = await this.newsStep.run(reportId, company);
 
-      // ── Step B: Opinions ────────────────────────────────────────────────
-      const opinionFindings = await this.opinionsStep.run(
-        reportId,
-        enrichedCompany,
-      );
-
-      // ── Step C: News ─────────────────────────────────────────────────────
-      const newsFindings = await this.newsStep.run(reportId, enrichedCompany);
-
-      // ── Step D: Management cross-ref ─────────────────────────────────────
-      const managementFindings = await this.managementStep.run(
-        reportId,
-        enrichedCompany,
-      );
+      // ── Step C: Management cross-ref ─────────────────────────────────────
+      const managementFindings = await this.managementStep.run(reportId, company);
 
       // ── Persist all findings ─────────────────────────────────────────────
       const allFindings = [
-        ...registryFindings,
         ...opinionFindings,
         ...newsFindings,
         ...managementFindings,

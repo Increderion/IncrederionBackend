@@ -20,7 +20,7 @@ export class FirecrawlService {
     return !!this.apiKey;
   }
 
-  async scrapeUrl(url: string): Promise<ScrapeResult> {
+  async scrapeUrl(url: string, opts: { onlyMainContent?: boolean } = {}): Promise<ScrapeResult> {
     if (!this.isConfigured()) {
       throw new Error('FIRECRAWL_API_KEY is not set.');
     }
@@ -36,7 +36,7 @@ export class FirecrawlService {
       body: JSON.stringify({
         url,
         formats: ['markdown'],
-        onlyMainContent: true,
+        onlyMainContent: opts.onlyMainContent ?? true,
         timeout: 30000,
       }),
     });

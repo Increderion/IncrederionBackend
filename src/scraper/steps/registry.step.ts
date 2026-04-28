@@ -36,14 +36,34 @@ export class RegistryStep {
     reportId: string,
     company: CompanyRow,
   ): Promise<FindingInsert[]> {
-    const key =
-      company.nip ?? company.krs ?? company.regon ?? company.name ?? '';
-    const q = encodeURIComponent(key.trim());
-    const url = process.env.REJESTR_IO_SEARCH_URL_TEMPLATE
-      ? process.env.REJESTR_IO_SEARCH_URL_TEMPLATE.replaceAll('{q}', q)
-      : `https://rejestr.io?phrase=${q}`;
+    let url: string;
 
-    this.logger.debug(`[registry] ${url}`);
+    if (company.krs) {
+      // Direct KRS page — fastest and most reliable
+      url = `https://rejestr.io/krs/${company.krs}`;
+    } else {
+      // Fallback: Google search to discover the rejestr.io page
+      const key = company.nip ?? company.regon ?? company.name ?? '';
+      if (!key.trim()) {
+        return [this.errorFinding(reportId, company, 'Brak danych identyfikacyjnych do wyszukania firmy')];
+      }
+
+      this.logger.debug(`[registry] no KRS, searching Google for: ${key}`);
+      try {
+        const googleUrl = `https://www.google.com/search?q=site:rejestr.io+${encodeURIComponent(key)}`;
+        const googleResult = await this.firecrawl.scrapeUrl(googleUrl);
+        const match = googleResult.markdown.match(/https:\/\/rejestr\.io\/krs\/[\w/%-]+/);
+        if (!match) {
+          return [this.errorFinding(reportId, company, 'Nie znaleziono firmy w rejestr.io')];
+        }
+        url = match[0].split('#')[0];
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return [this.errorFinding(reportId, company, `Błąd wyszukiwania Google: ${msg}`)];
+      }
+    }
+
+    this.logger.debug(`[registry] scraping: ${url}`);
 
     try {
       const result = await this.firecrawl.scrapeUrl(url);
@@ -60,7 +80,6 @@ export class RegistryStep {
         this.logger.warn(`[registry] AI extraction failed: ${err}`);
       }
 
-      //Also update company's raw registry fields + extracted fields
       await this.supabase
         .getServiceRoleClient()
         .from('companies')
@@ -76,7 +95,7 @@ export class RegistryStep {
           registry_raw_markdown: result.markdown,
           registry_raw_metadata: result.rawResponse as Record<string, unknown>,
           registry_source_url: result.url,
-          registry_sync_status: 'success',
+          registry_sync_status: 'ok',
           last_registry_sync_at: new Date().toISOString(),
           registry_sync_error: null,
         } as never)
@@ -98,17 +117,19 @@ export class RegistryStep {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.warn(`[registry] failed: ${msg}`);
-      return [
-        {
-          report_id: reportId,
-          company_id: company.id,
-          category: 'registry',
-          severity: 'low',
-          title: 'Błąd pobierania danych rejestrowych',
-          summary: msg,
-          source: 'rejestr.io',
-        },
-      ];
+      return [this.errorFinding(reportId, company, msg)];
     }
+  }
+
+  private errorFinding(reportId: string, company: CompanyRow, msg: string): FindingInsert {
+    return {
+      report_id: reportId,
+      company_id: company.id,
+      category: 'registry',
+      severity: 'low',
+      title: 'Błąd pobierania danych rejestrowych',
+      summary: msg,
+      source: 'rejestr.io',
+    };
   }
 }

@@ -51,7 +51,11 @@ export class AiService {
     }
 
     const data = (await response.json()) as { message: { content: string } };
-    return data.message.content;
+    return this.stripThinkingBlocks(data.message.content);
+  }
+
+  private stripThinkingBlocks(text: string): string {
+    return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
   }
 
   async isAvailable(): Promise<boolean> {
