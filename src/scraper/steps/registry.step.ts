@@ -19,6 +19,9 @@ export interface FindingInsert {
   raw_markdown?: string;
 }
 
+import { AiService } from '../../ai/ai.service';
+import { REGISTRY_EXTRACTION_SYSTEM, REGISTRY_EXTRACTION_USER } from '../../ai/prompts/registry-extraction.prompt';
+
 @Injectable()
 export class RegistryStep {
   private readonly logger = new Logger(RegistryStep.name);
@@ -26,7 +29,8 @@ export class RegistryStep {
   constructor(
     private readonly supabase: SupabaseService,
     private readonly firecrawl: FirecrawlService,
-  ) {}
+    private readonly aiService: AiService,
+  ) { }
 
   async run(
     reportId: string,
@@ -44,11 +48,31 @@ export class RegistryStep {
     try {
       const result = await this.firecrawl.scrapeUrl(url);
 
-      // Also update company's raw registry fields
+      let extractedData: Record<string, any> = {};
+      try {
+        const aiResponse = await this.aiService.chat([
+          { role: 'system', content: REGISTRY_EXTRACTION_SYSTEM },
+          { role: 'user', content: REGISTRY_EXTRACTION_USER(result.markdown, result.url) },
+        ]);
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        extractedData = JSON.parse(jsonMatch ? jsonMatch[0] : aiResponse);
+      } catch (err) {
+        this.logger.warn(`[registry] AI extraction failed: ${err}`);
+      }
+
+      //Also update company's raw registry fields + extracted fields
       await this.supabase
         .getServiceRoleClient()
         .from('companies')
         .update({
+          name: extractedData.name || company.name,
+          nip: extractedData.nip || company.nip,
+          krs: extractedData.krs || company.krs,
+          regon: extractedData.regon || company.regon,
+          legal_form: extractedData.legal_form || company.legal_form,
+          industry: extractedData.industry || company.industry,
+          registration_date: extractedData.registration_date || company.registration_date,
+          president_name: extractedData.president_name || company.president_name,
           registry_raw_markdown: result.markdown,
           registry_raw_metadata: result.rawResponse as Record<string, unknown>,
           registry_source_url: result.url,

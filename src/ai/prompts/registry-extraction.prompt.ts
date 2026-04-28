@@ -1,11 +1,3 @@
-/**
- * Prompt bazowy dla kolegi (AI): z surowego markdowna strony rejestrowej
- * wyciągnij ustrukturyzowane pola do zaktualizowania tabeli public.companies.
- *
- * Wejście: companies.registry_raw_markdown + opcjonalnie registry_source_url
- * Wyjście: JSON zgodny ze schematem poniżej (walidacja po stronie aplikacji).
- */
-
 export const REGISTRY_EXTRACTION_SYSTEM = `Jesteś asystentem do ekstrakcji danych firmy z polskich rejestrów (np. rejestr.io, KRS, CEIDG).
 Zwracasz WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy), zgodny ze schematem.
 Pola, których nie znajdziesz, ustaw na null.
