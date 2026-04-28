@@ -7,19 +7,20 @@ export interface ChatMessage {
 
 export interface ChatOptions {
   model?: string;
-  stream?: false;
-  think?: boolean;
+  temperature?: number;
 }
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly baseUrl: string;
+  private readonly apiKey: string;
   readonly defaultModel: string;
 
   constructor() {
-    this.baseUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
-    this.defaultModel = process.env.OLLAMA_MODEL ?? 'qwen3:32b-q4_K_M';
+    this.baseUrl = process.env.AI_BASE_URL ?? 'https://openrouter.ai/api/v1';
+    this.apiKey = process.env.AI_API_KEY ?? '';
+    this.defaultModel = process.env.AI_MODEL ?? 'google/gemini-2.0-flash-001';
   }
 
   async chat(
@@ -28,42 +29,37 @@ export class AiService {
   ): Promise<string> {
     const model = options.model ?? this.defaultModel;
 
-    const body: Record<string, unknown> = {
-      model,
-      messages,
-      stream: false,
-    };
-
-    // qwen3 supports /think tag toggle via options
-    if (options.think !== undefined) {
-      body.think = options.think;
+    if (!this.apiKey) {
+      this.logger.error('Missing AI_API_KEY for OpenRouter');
+      throw new Error('AI API Key is required');
     }
 
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`,
+        'HTTP-Referer': 'https://increderion.ai', // Optional for OpenRouter
+        'X-Title': 'Increderion',
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: options.temperature ?? 0.1,
+      }),
     });
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Ollama error ${response.status}: ${text}`);
+      throw new Error(`OpenRouter error ${response.status}: ${text}`);
     }
 
-    const data = (await response.json()) as { message: { content: string } };
-    return this.stripThinkingBlocks(data.message.content);
-  }
-
-  private stripThinkingBlocks(text: string): string {
-    return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content ?? '';
   }
 
   async isAvailable(): Promise<boolean> {
-    try {
-      const res = await fetch(`${this.baseUrl}/api/tags`);
-      return res.ok;
-    } catch {
-      return false;
-    }
+    return !!this.apiKey;
   }
 }
+
