@@ -5,6 +5,8 @@ import { RegistryStep } from './steps/registry.step';
 import { OpinionsStep } from './steps/opinions.step';
 import { NewsStep } from './steps/news.step';
 import { ManagementStep } from './steps/management.step';
+import { AiService } from '../ai/ai.service';
+import { KYC_SUMMARY_SYSTEM, KYC_SUMMARY_USER } from '../ai/prompts/kyc-summary.prompt';
 
 @Injectable()
 export class ScraperPipelineService {
@@ -16,6 +18,7 @@ export class ScraperPipelineService {
     private readonly opinionsStep: OpinionsStep,
     private readonly newsStep: NewsStep,
     private readonly managementStep: ManagementStep,
+    private readonly aiService: AiService,
   ) {}
 
   /**
@@ -103,15 +106,56 @@ export class ScraperPipelineService {
   }
 
   /**
-   * AI enrichment hook – intentionally empty for now.
-   * Colleague's AI module will implement:
-   *   1. Read report_findings.raw_markdown
-   *   2. Generate summaries / risk_score / ai_summary
-   *   3. Update reports and report_findings records
+   * AI enrichment hook
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private async enrichWithAi(_reportId: string): Promise<void> {
-    // TODO: AI colleague implements this
-    return;
+  private async enrichWithAi(reportId: string): Promise<void> {
+    try {
+      this.logger.debug(`[AI] Starting enrichment for report ${reportId}`);
+
+      const { data: findings } = await this.supabase
+        .getServiceRoleClient()
+        .from('report_findings')
+        .select('*')
+        .eq('report_id', reportId);
+
+      if (!findings || findings.length === 0) {
+        this.logger.warn(`[AI] No findings for report ${reportId}, skipping AI.`);
+        return;
+      }
+
+      // We need to strip the findings down to avoid too large prompts
+      const aiResponse = await this.aiService.chat([
+        { role: 'system', content: KYC_SUMMARY_SYSTEM },
+        { role: 'user', content: KYC_SUMMARY_USER(findings) },
+      ]);
+
+      // Parse JSON
+      let result;
+      try {
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          result = JSON.parse(jsonMatch[0]);
+        } else {
+          result = JSON.parse(aiResponse);
+        }
+      } catch (err) {
+        this.logger.error(`[AI] Failed to parse JSON: ${aiResponse}`);
+        throw new Error('AI returned invalid JSON');
+      }
+
+      // Update reports table
+      await this.supabase
+        .getServiceRoleClient()
+        .from('reports')
+        .update({
+          events_panels: result.events_panels || [],
+          ai_summary: result.ai_summary || 'Brak podsumowania',
+        } as never)
+        .eq('id', reportId);
+
+      this.logger.log(`[AI] Enrichment complete for report ${reportId}`);
+    } catch (error) {
+      this.logger.error(`[AI] Enrichment failed: ${error}`);
+    }
   }
 }

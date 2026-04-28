@@ -16,7 +16,7 @@ export interface ReportRow {
   company_id: string;
   status: string;
   error: string | null;
-  risk_score: number | null;
+  events_panels: any[];
   ai_summary: string | null;
   created_at: string;
   updated_at: string;

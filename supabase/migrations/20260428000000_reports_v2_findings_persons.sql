@@ -18,7 +18,7 @@ create table public.reports (
   status      text not null default 'pending',  -- pending | running | completed | failed
   error       text,                              -- last pipeline error message
   -- scoring (filled after pipeline completes)
-  risk_score  int check (risk_score between 0 and 100),
+  events_panels jsonb default '[]'::jsonb,
   -- AI hook (filled by colleague's AI module)
   ai_summary  text,
   created_at  timestamptz not null default now(),
