@@ -7,6 +7,7 @@ import { FindingInsert } from './registry.step';
 /**
  * Extracts management/board members from registry markdown (simple heuristics),
  * searches for them on rejestr.io via Google to find other companies they appear in.
+ * Also searches social media for potential controversies.
  */
 @Injectable()
 export class ManagementStep {
@@ -26,39 +27,62 @@ export class ManagementStep {
       return [];
     }
 
-    for (const name of names.slice(0, 5)) {
-      this.logger.debug(`[management] cross-ref: ${name}`);
+    // Limit to top 3 members to avoid excessive scraping
+    for (const name of names.slice(0, 3)) {
+      this.logger.debug(`[management] processing: ${name}`);
 
+      // ── Sub-step 1: Rejestr.io Cross-Reference ─────────────────────────────
       try {
-        // Google search to find the person's rejestr.io /osoby/ page
         const googleUrl = `https://www.google.com/search?q=site:rejestr.io+osoba+${encodeURIComponent(name)}`;
         const googleResult = await this.firecrawl.scrapeUrl(googleUrl);
         const match = googleResult.markdown.match(/https:\/\/rejestr\.io\/osoby\/[\w/%-]+/);
-        if (!match) {
-          this.logger.debug(`[management] no osoby URL for ${name}`);
-          continue;
+        
+        if (match) {
+          const url = match[0].split('#')[0].split(']')[0].split(')')[0];
+          const result = await this.firecrawl.scrapeUrl(url);
+          
+          if (result.markdown.trim()) {
+            const otherCompanies = this.extractOtherCompanies(result.markdown);
+            await this.upsertPerson(company.id, name, otherCompanies);
+
+            findings.push({
+              report_id: reportId,
+              company_id: company.id,
+              category: 'management',
+              severity: otherCompanies.length > 0 ? 'medium' : 'info',
+              title: `Powiązania biznesowe: ${name}`,
+              summary: `Osoba występuje w ${otherCompanies.length} innych podmiotach. \n\n${result.markdown.slice(0, 1000)}`,
+              url: result.url,
+              source: 'rejestr.io (osoby)',
+              raw_markdown: result.markdown,
+            });
+          }
         }
-        const url = match[0].split('#')[0];
-
-        const result = await this.firecrawl.scrapeUrl(url);
-        if (!result.markdown.trim()) continue;
-
-        await this.upsertPerson(company.id, name, result.markdown);
-
-        findings.push({
-          report_id: reportId,
-          company_id: company.id,
-          category: 'management',
-          severity: 'info',
-          title: `Zarząd/Wspólnik: ${name}`,
-          summary: result.markdown.slice(0, 500),
-          url: result.url,
-          source: 'rejestr.io (osoby)',
-          raw_markdown: result.markdown,
-        });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        this.logger.warn(`[management] ${name} failed: ${msg}`);
+        this.logger.warn(`[management] rejestr.io search failed for ${name}: ${e}`);
+      }
+
+      // ── Sub-step 2: Social Media & Controversies ───────────────────────────
+      try {
+        // Search for the person with keywords like "kontrowersje", "opinie", "twitter"
+        const socialUrl = `https://www.google.com/search?q=${encodeURIComponent(`"${name}" (twitter OR facebook OR linkedin OR kontrowersje OR oszustwo)`)}`;
+        const socialResult = await this.firecrawl.scrapeUrl(socialUrl);
+
+        if (socialResult.markdown.trim()) {
+          findings.push({
+            report_id: reportId,
+            company_id: company.id,
+            category: 'management',
+            severity: 'low',
+            title: `Ślad cyfrowy: ${name}`,
+            summary: socialResult.markdown.slice(0, 1000),
+            url: socialResult.url,
+            source: 'Google Search (Social/Alerts)',
+            raw_markdown: socialResult.markdown,
+          });
+        }
+      } catch (e) {
+        this.logger.warn(`[management] social search failed for ${name}: ${e}`);
       }
     }
 
@@ -80,13 +104,22 @@ export class ManagementStep {
     return names;
   }
 
+  private extractOtherCompanies(markdown: string): any[] {
+    // Simple heuristic to find company names/KRS numbers in the person's profile
+    // Looking for patterns like "KRS: 0000..." or "NIP: ..." or names in quotes/caps
+    const companies: any[] = [];
+    const krsMatches = markdown.matchAll(/KRS\s*(\d{10})/g);
+    for (const match of krsMatches) {
+      companies.push({ krs: match[1] });
+    }
+    return companies;
+  }
+
   private async upsertPerson(
     companyId: string,
     fullName: string,
-    markdown: string,
+    otherCompanies: any[],
   ) {
-    const otherCompanies: unknown[] = [];
-
     const { error } = await this.supabase
       .getServiceRoleClient()
       .from('company_persons')
@@ -104,3 +137,4 @@ export class ManagementStep {
     }
   }
 }
+
