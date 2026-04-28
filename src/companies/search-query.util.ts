@@ -20,7 +20,8 @@ export function parseCompanySearchInput(input: string): ParsedSearchQuery {
   const d = digits(raw);
 
   if (d.length === 10) {
-    if (/krs/i.test(raw)) {
+    // KRS-y w Polsce zaczynają się od zer (np. 0000123456)
+    if (d.startsWith('00') || /krs/i.test(raw)) {
       return { raw, nip: null, krs: d, regon: null, nameLike: null };
     }
     return { raw, nip: d, krs: null, regon: null, nameLike: null };
@@ -30,7 +31,7 @@ export function parseCompanySearchInput(input: string): ParsedSearchQuery {
   }
   if (d.length >= 7 && d.length < 10) {
     if (/krs|sąd|sad|rejestr/i.test(raw)) {
-      return { raw, nip: null, krs: d.slice(-10).padStart(10, '0'), regon: null, nameLike: null };
+      return { raw, nip: null, krs: d.padStart(10, '0'), regon: null, nameLike: null };
     }
   }
 

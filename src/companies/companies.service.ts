@@ -182,7 +182,10 @@ export class CompaniesService {
     if (parsed.krs) {
       return `https://rejestr.io/krs/${parsed.krs}`;
     }
-
+    if (parsed.nip) {
+      // Rejestr.io supports searching by NIP directly via query param
+      return `https://rejestr.io/wyszukiwarka?phrase=${parsed.nip}`;
+    }
     const key = parsed.nip ?? parsed.regon ?? parsed.nameLike ?? query;
     this.logger.debug(`[companies] Google search for rejestr.io: ${key}`);
 
