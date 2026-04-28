@@ -1,5 +1,75 @@
 <h1> Sławek Kruszyński - Konrad Klautzsch - Matvii Hniezdilov - Wojtek Artymiak - Antoni Barczak - Oskar Kurzyna</h1>
 
+# Increderion Backend - Dokumentacja Projektu
+
+Increderion Backend to silnik analityczny oparty na NestJS, służący do automatycznej weryfikacji kontrahentów (KYC) oraz analizy reputacji firm. System integruje dane rejestrowe z dynamiczną analizą treści internetowych przy użyciu sztucznej inteligencji.
+
+## 🚀 Architektura Systemu
+
+Projekt jest zbudowany w oparciu o framework **NestJS** i wykorzystuje architekturę modularną.
+
+### Kluczowe Moduły:
+- **AiModule**: Integracja z OpenRouter (nvidia/nemotron-3-super-120b-a12b:free /  Gemini 2.0 Flash) do analizy treści i generowania podsumowań.
+- **AuthModule**: Autoryzacja oparta na Supabase JWT.
+- **CompaniesModule**: Zarządzanie danymi firm, wyszukiwanie i autouzupełnianie.
+- **ReportsModule**: Obsługa procesów generowania raportów KYC.
+- **ScraperModule**: Zaawansowany potok (pipeline) zbierania danych z wielu źródeł.
+- **DatabaseModule**: Komunikacja z bazą danych Supabase (PostgreSQL).
+
+---
+
+## 🛠 Stos Technologiczny
+
+- **Backend**: NestJS (Node.js)
+- **Baza danych**: Supabase (PostgreSQL)
+- **Autentykacja**: Supabase Auth (JWT)
+- **AI**: OpenRouter (nvidia/nemotron-3-super-120b-a12b:free / Google Gemini)
+- **Scraping**: Firecrawl (opcjonalnie), customowe kroki scrapujące.
+
+---
+
+## 🛰 API Endpoints
+
+### 🔑 Autentykacja (`/auth`)
+- `POST /auth/register` - Rejestracja nowego użytkownika.
+- `POST /auth/login` - Logowanie i uzyskanie tokenu JWT.
+
+### 🏢 Firmy (`/companies`)
+- `POST /companies/search` - Wyszukiwanie firmy po NIP/KRS/Nazwie. Zwraca dane podstawowe.
+- `GET /companies/autocomplete/:query` - Sugestie nazw firm dla UI.
+- `GET /companies/:id` - Szczegółowe dane firmy.
+
+### 📊 Raporty KYC (`/reports`)
+- `POST /reports` - Zlecenie wygenerowania nowego raportu. Uruchamia asynchroniczny potok analizy.
+- `GET /reports` - Lista raportów użytkownika.
+- `GET /reports/:id` - Pełny raport wraz ze znaleziskami (findings) i podsumowaniem AI.
+- `DELETE /reports/:id` - Usunięcie raportu z historii.
+
+---
+
+## 🔄 Potok Analizy (Scraper Pipeline)
+
+Gdy użytkownik zleca raport, system uruchamia `ScraperPipelineService`, który wykonuje następujące kroki:
+
+1.  **RegistryStep**: Pobieranie i aktualizacja danych z oficjalnych rejestrów (KRS, NIP).
+2.  **OpinionsStep**: Analiza opinii o firmie w sieci (pracownicy, klienci).
+3.  **NewsStep**: Przeszukiwanie serwisów informacyjnych (np. Bankier, PAP) pod kątem wzmianek o firmie.
+4.  **ManagementStep**: Analiza powiązań osobowych i historii zarządu.
+5.  **AI Enrichment**: 
+    - Agregacja wszystkich znalezisk.
+    - Generowanie czytelnego podsumowania przez LLM.
+    - Tworzenie paneli wydarzeń (events_panels) dla osi czasu.
+
+---
+
+## 🗄 Struktura Bazy Danych (Supabase)
+
+Główne tabele:
+- `companies`: Dane podstawowe firm (nazwa, NIP, KRS, REGON, branża).
+- `reports`: Nagłówki raportów (status, data, podsumowanie AI).
+- `report_findings`: Detale znalezione podczas scrapingu (linki, treści, kategoria, sentyment).
+
+---
 
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
