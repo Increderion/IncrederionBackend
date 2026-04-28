@@ -26,6 +26,12 @@ export class CompaniesController {
     return this.companiesService.search(dto);
   }
 
+  @Get('autocomplete/:query')
+  autocomplete(@Param('query') query: string) {
+    return this.companiesService.list({ query });
+  }
+
+
   /**
    * GET /companies/:id
    * Get company details by ID.

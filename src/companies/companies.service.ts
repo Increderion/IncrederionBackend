@@ -33,10 +33,6 @@ export class CompaniesService {
     return data as CompanyRow;
   }
 
-  /**
-   * Find company in DB by NIP/KRS/REGON/name.
-   * If not found → scrape rejestr.io + AI extract → save → return.
-   */
   async search(dto: SearchCompanyDto): Promise<{ company: CompanyRow; created: boolean }> {
     const parsed = parseCompanySearchInput(dto.query);
     const existing = await this.findExistingCompany(parsed);
@@ -44,9 +40,42 @@ export class CompaniesService {
       return { company: existing, created: false };
     }
 
-    this.logger.log(`[companies] not in DB — scraping for: ${dto.query}`);
-    const company = await this.scrapeAndCreate(dto.query, parsed);
-    return { company, created: true };
+    this.logger.log(`[companies] not in DB — creating draft for: ${dto.query}`);
+    
+    // Create a draft company immediately to allow instant redirection
+    const { data, error } = await this.companiesTable()
+      .insert({
+        name: parsed.nameLike || dto.query,
+        nip: parsed.nip || null,
+        krs: parsed.krs || null,
+        regon: parsed.regon || null,
+        registry_sync_status: 'pending',
+      })
+      .select('*')
+      .single();
+
+    if (error || !data) throw new Error(error?.message ?? 'Failed to create draft company');
+    
+    return { company: data as CompanyRow, created: true };
+  }
+
+  /**
+   * Search companies for autocomplete (no side effects).
+   */
+  async list(dto: SearchCompanyDto): Promise<CompanyRow[]> {
+    const parsed = parseCompanySearchInput(dto.query);
+    
+    let q = this.companiesTable().select('*');
+
+    if (parsed.nip) q = q.eq('nip', parsed.nip);
+    else if (parsed.krs) q = q.eq('krs', parsed.krs);
+    else if (parsed.regon) q = q.eq('regon', parsed.regon);
+    else if (parsed.nameLike) q = q.ilike('name', `%${parsed.nameLike}%`);
+    else return [];
+
+    const { data, error } = await q.limit(10);
+    if (error) throw new Error(error.message);
+    return (data || []) as CompanyRow[];
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
